@@ -70,7 +70,7 @@ jobs:
 
           TMP_DIR="$(mktemp -d)"
 
-          rsync -a --delete \
+          rsync -a \
             --exclude='.git' \
             upstream-openwrt/toolchain/binutils/ \
             "${TMP_DIR}/"
@@ -80,9 +80,7 @@ jobs:
             ! -name '.github' \
             -exec rm -rf {} +
 
-          rsync -a --delete \
-            "${TMP_DIR}/" \
-            ./
+          rsync -a "${TMP_DIR}/" ./
 
           rm -rf "${TMP_DIR}" upstream-openwrt
 
