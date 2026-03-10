@@ -1,4 +1,4 @@
-name: Sync OpenWrt toolchain/binutils
+name: Sync OpenWrt toolchain/binutils to branch
 
 on:
   workflow_dispatch:
@@ -13,57 +13,104 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout target repo
+      - name: Checkout current repo default branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Sparse clone upstream directory
+      - name: Prepare target branch
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          git clone --depth=1 --filter=blob:none --sparse \
+          TARGET_BRANCH="openwrt-25.12"
+
+          git fetch origin "${TARGET_BRANCH}:${TARGET_BRANCH}" || true
+
+          if git show-ref --verify --quiet "refs/heads/${TARGET_BRANCH}"; then
+            git checkout "${TARGET_BRANCH}"
+          else
+            git checkout --orphan "${TARGET_BRANCH}"
+            git rm -rf . >/dev/null 2>&1 || true
+            rm -rf ./* .[^.]* 2>/dev/null || true
+            mkdir -p .github/workflows
+          fi
+
+      - name: Restore workflow file on orphan branch if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .github/workflows
+
+          if [ ! -f .github/workflows/sync-binutils.yml ]; then
+            git show "${GITHUB_SHA}:.github/workflows/sync-binutils.yml" > .github/workflows/sync-binutils.yml
+          fi
+
+      - name: Sparse clone upstream toolchain/binutils
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git clone \
+            --depth=1 \
+            --filter=blob:none \
+            --sparse \
             --branch openwrt-25.12 \
             https://github.com/openwrt/openwrt.git upstream-openwrt
 
           cd upstream-openwrt
           git sparse-checkout set toolchain/binutils
 
-      - name: Replace repo contents with upstream binutils directory
-        run: |
-          set -e
+          echo "UPSTREAM_COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
-          mkdir -p /tmp/binutils-sync
+      - name: Sync upstream files to target branch root
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .sync-tmp
 
           rsync -a --delete \
-            --exclude '.git' \
+            --exclude='.git' \
             upstream-openwrt/toolchain/binutils/ \
-            /tmp/binutils-sync/
+            .sync-tmp/
 
           find . -mindepth 1 -maxdepth 1 \
             ! -name '.git' \
             ! -name '.github' \
+            ! -name '.sync-tmp' \
             -exec rm -rf {} +
 
-          rsync -a /tmp/binutils-sync/ ./
+          rsync -a --delete .sync-tmp/ ./
 
-          rm -rf /tmp/binutils-sync upstream-openwrt
+          rm -rf .sync-tmp upstream-openwrt
+
+      - name: Show changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --short
 
       - name: Commit changes
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if git diff --quiet && git diff --cached --quiet; then
+          git add -A
+
+          if git diff --cached --quiet; then
             echo "No changes"
             exit 0
           fi
 
-          git add -A
-          git commit -m "sync: openwrt-25.12 toolchain/binutils"
+          git commit -m "sync: openwrt/toolchain/binutils @ ${UPSTREAM_COMMIT}"
 
-      - name: Push changes
+      - name: Push target branch
+        shell: bash
         run: |
-          git push
+          set -euo pipefail
+          git push origin HEAD:openwrt-25.12
