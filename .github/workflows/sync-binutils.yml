@@ -25,16 +25,13 @@ jobs:
 
           TARGET_BRANCH="openwrt-25.12"
 
-          git fetch origin "${TARGET_BRANCH}:${TARGET_BRANCH}" || true
+          git fetch origin "${TARGET_BRANCH}:${TARGET_BRANCH}" 2>/dev/null || true
 
           if git show-ref --verify --quiet "refs/heads/${TARGET_BRANCH}"; then
             git checkout "${TARGET_BRANCH}"
           else
             git checkout --orphan "${TARGET_BRANCH}"
-
-            # 只清理工作区内容，不删除 .git
             find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-
             mkdir -p .github/workflows
           fi
 
@@ -71,22 +68,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p .sync-tmp
+          TMP_DIR="$(mktemp -d)"
 
           rsync -a --delete \
             --exclude='.git' \
             upstream-openwrt/toolchain/binutils/ \
-            .sync-tmp/
+            "${TMP_DIR}/"
 
           find . -mindepth 1 -maxdepth 1 \
             ! -name '.git' \
             ! -name '.github' \
-            ! -name '.sync-tmp' \
             -exec rm -rf {} +
 
-          rsync -a --delete .sync-tmp/ ./
+          rsync -a --delete \
+            "${TMP_DIR}/" \
+            ./
 
-          rm -rf .sync-tmp upstream-openwrt
+          rm -rf "${TMP_DIR}" upstream-openwrt
 
       - name: Show changes
         shell: bash
